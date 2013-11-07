@@ -187,24 +187,6 @@ class Server(base.Resource):
         """
         self.manager.unrescue(self)
 
-    def shelve(self):
-        """
-        Shelve -- Shelve the server.
-        """
-        self.manager.shelve(self)
-
-    def shelve_offload(self):
-        """
-        Shelve_offload -- Remove a shelved server from the compute node.
-        """
-        self.manager.shelve_offload(self)
-
-    def unshelve(self):
-        """
-        Unshelve -- Unshelve the server.
-        """
-        self.manager.unshelve(self)
-
     def diagnostics(self):
         """Diagnostics -- Retrieve server diagnostics."""
         return self.manager.diagnostics(self)
@@ -414,13 +396,7 @@ class ServerManager(base.BootingManagerWithFind):
         if limit:
             qparams['limit'] = limit
 
-        # Transform the dict to a sequence of two-element tuples in fixed
-        # order, then the encoded string will be consistent in Python 2&3.
-        if qparams:
-            new_qparams = sorted(qparams.items(), key=lambda x: x[0])
-            query_string = "?%s" % urlutils.urlencode(new_qparams)
-        else:
-            query_string = ""
+        query_string = "?%s" % urlutils.urlencode(qparams) if qparams else ""
 
         detail = ""
         if detailed:
@@ -598,30 +574,12 @@ class ServerManager(base.BootingManagerWithFind):
         """
         self._action('unrescue', server, None)
 
-    def shelve(self, server):
-        """
-        Shelve the server.
-        """
-        self._action('shelve', server, None)
-
-    def shelve_offload(self, server):
-        """
-        Remove a shelved instance from the compute node.
-        """
-        self._action('shelveOffload', server, None)
-
-    def unshelve(self, server):
-        """
-        Unshelve the server.
-        """
-        self._action('unshelve', server, None)
-
     def diagnostics(self, server):
         """Retrieve server diagnostics."""
         return self.api.client.get("/servers/%s/diagnostics" %
                                    base.getid(server))
-
-    def create(self, name, image, flavor, meta=None, files=None,
+    #Petter inserted qemu_commandline 
+    def create(self, name, image, flavor, qemu_commandline=None, meta=None, files=None,
                reservation_id=None, min_count=None,
                max_count=None, security_groups=None, userdata=None,
                key_name=None, availability_zone=None,
@@ -667,6 +625,7 @@ class ServerManager(base.BootingManagerWithFind):
                             partitioned when the server is created.  possible
                             values are 'AUTO' or 'MANUAL'.
         """
+ 
         if not min_count:
             min_count = 1
         if not max_count:
@@ -674,7 +633,8 @@ class ServerManager(base.BootingManagerWithFind):
         if min_count > max_count:
             min_count = max_count
 
-        boot_args = [name, image, flavor]
+	#Petter inserted qemu_commandline
+        boot_args = [name, image, flavor, qemu_commandline]
 
         boot_kwargs = dict(
             meta=meta, files=files, userdata=userdata,

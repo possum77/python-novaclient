@@ -24,11 +24,8 @@ import datetime
 import getpass
 import locale
 import os
-import six
 import sys
 import time
-
-import six
 
 from novaclient import exceptions
 from novaclient.openstack.common import strutils
@@ -94,7 +91,7 @@ def _parse_block_device_mapping_v2(args, image):
         spec_dict = dict(v.split('=') for v in device_spec.split(','))
         bdm_dict = {}
 
-        for key, value in six.iteritems(spec_dict):
+        for key, value in spec_dict.iteritems():
             bdm_dict[CLIENT_BDM2_KEYS[key]] = value
 
         # Convert the delete_on_termination to a boolean or set it to true by
@@ -125,11 +122,19 @@ def _parse_block_device_mapping_v2(args, image):
                     'guest_format': 'swap', 'volume_size': args.swap}
         bdm.append(bdm_dict)
 
+    # Append the image to the list only if we have new style BDMs
+    if bdm and not args.block_device_mapping and image:
+        bdm_dict = {'uuid': image.id, 'source_type': 'image',
+                    'destination_type': 'local', 'boot_index': 0,
+                    'delete_on_termination': True}
+        bdm.insert(0, bdm_dict)
+
     return bdm
 
 
 def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
     """Boot a new server."""
+
     if min_count is None:
         min_count = 1
     if max_count is None:
@@ -207,8 +212,7 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
 
     block_device_mapping_v2 = _parse_block_device_mapping_v2(args, image)
 
-    n_boot_args = len(list(filter(
-        bool, (image, args.boot_volume, args.snapshot))))
+    n_boot_args = len(filter(None, (image, args.boot_volume, args.snapshot)))
     have_bdm = block_device_mapping_v2 or block_device_mapping
 
     # Fail if more than one boot devices are present
@@ -261,7 +265,12 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
                 hints[key] += [value]
             else:
                 hints[key] = value
-    boot_args = [args.name, image, flavor]
+    
+    #Petter
+    if args.qemu_commandline:
+    	boot_args = [args.name, image, flavor, args.qemu_commandline]
+    else:	
+        boot_args = [args.name, image, flavor]
 
     if str(args.config_drive).lower() in ("true", "1"):
         config_drive = True
@@ -288,7 +297,11 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
 
     return boot_args, boot_kwargs
 
-
+#Petter
+@utils.arg('--qemu_commandline',
+     default=None,
+     metavar='<qemu_commandline>',
+     help="Args passed to qemu at VM creation.")
 @utils.arg('--flavor',
      default=None,
      metavar='<flavor>',
@@ -315,7 +328,7 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
      default=None,
      type=int,
      metavar='<number>',
-     help="boot multiple servers at a time (limited by quota).")
+     help="boot multi instances at a time")
 @utils.arg('--meta',
      metavar="<key=value>",
      action='append',
@@ -345,7 +358,7 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
 @utils.arg('--availability-zone',
     default=None,
     metavar='<availability-zone>',
-    help="The availability zone for server placement.")
+    help="The availability zone for instance placement.")
 @utils.arg('--availability_zone',
     help=argparse.SUPPRESS)
 @utils.arg('--security-groups',
@@ -415,7 +428,7 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
     dest='poll',
     action="store_true",
     default=False,
-    help='Blocks while server builds so progress can be reported.')
+    help='Blocks while instance builds so progress can be reported.')
 def do_boot(cs, args):
     """Boot a new server."""
     boot_args, boot_kwargs = _boot(cs, args)
@@ -478,10 +491,10 @@ def _poll_for_status(poll_fn, obj_id, action, final_ok_states,
     """
     def print_progress(progress):
         if show_progress:
-            msg = ('\rServer %(action)s... %(progress)s%% complete'
+            msg = ('\rInstance %(action)s... %(progress)s%% complete'
                    % dict(action=action, progress=progress))
         else:
-            msg = '\rServer %(action)s...' % dict(action=action)
+            msg = '\rInstance %(action)s...' % dict(action=action)
 
         sys.stdout.write(msg)
         sys.stdout.flush()
@@ -505,7 +518,7 @@ def _poll_for_status(poll_fn, obj_id, action, final_ok_states,
             break
         elif status == "error":
             if not silent:
-                print("\nError %s server" % action)
+                print("\nError %s instance" % action)
             break
 
         if not silent:
@@ -1023,7 +1036,7 @@ def do_image_delete(cs, args):
     dest='reservation_id',
     metavar='<reservation-id>',
     default=None,
-    help='Only return servers that match reservation-id.')
+    help='Only return instances that match reservation-id.')
 @utils.arg('--reservation_id',
     help=argparse.SUPPRESS)
 @utils.arg('--ip',
@@ -1045,7 +1058,7 @@ def do_image_delete(cs, args):
     dest='instance_name',
     metavar='<name-regexp>',
     default=None,
-    help='Search with regular expression match by server name (Admin only).')
+    help='Search with regular expression match by instance name (Admin only).')
 @utils.arg('--instance_name',
     help=argparse.SUPPRESS)
 @utils.arg('--status',
@@ -1067,7 +1080,7 @@ def do_image_delete(cs, args):
     dest='host',
     metavar='<hostname>',
     default=None,
-    help='Search servers by hostname to which they are assigned '
+    help='Search instances by hostname to which they are assigned '
          '(Admin only).')
 @utils.arg('--all-tenants',
     dest='all_tenants',
@@ -1093,11 +1106,6 @@ def do_image_delete(cs, args):
     metavar='<fields>',
     help='Comma-separated list of fields to display. '
          'Use the show command to see which fields are available.')
-@utils.arg('--minimal',
-    dest='minimal',
-    action="store_true",
-    default=False,
-    help='Get only uuid and name.')
 def do_list(cs, args):
     """List active servers."""
     imageid = None
@@ -1133,10 +1141,7 @@ def do_list(cs, args):
 
     id_col = 'ID'
 
-    detailed = not args.minimal
-
-    servers = cs.servers.list(detailed=detailed,
-                              search_opts=search_opts)
+    servers = cs.servers.list(search_opts=search_opts)
     convert = [('OS-EXT-SRV-ATTR:host', 'host'),
                ('OS-EXT-STS:task_state', 'task_state'),
                ('OS-EXT-SRV-ATTR:instance_name', 'instance_name'),
@@ -1144,11 +1149,7 @@ def do_list(cs, args):
                ('hostId', 'host_id')]
     _translate_keys(servers, convert)
     _translate_extended_states(servers)
-    if args.minimal:
-        columns = [
-            id_col,
-            'Name']
-    elif field_titles:
+    if field_titles:
         columns = [id_col] + field_titles
     else:
         columns = [
@@ -1175,7 +1176,7 @@ def do_list(cs, args):
     dest='poll',
     action="store_true",
     default=False,
-    help='Blocks while server is rebooting.')
+    help='Blocks while instance is rebooting.')
 def do_reboot(cs, args):
     """Reboot a server."""
     server = _find_server(cs, args.server)
@@ -1192,19 +1193,19 @@ def do_reboot(cs, args):
     dest='rebuild_password',
     metavar='<rebuild-password>',
     default=False,
-    help="Set the provided password on the rebuild server.")
+    help="Set the provided password on the rebuild instance.")
 @utils.arg('--rebuild_password',
     help=argparse.SUPPRESS)
 @utils.arg('--poll',
     dest='poll',
     action="store_true",
     default=False,
-    help='Blocks while server rebuilds so progress can be reported.')
+    help='Blocks while instance rebuilds so progress can be reported.')
 @utils.arg('--minimal',
     dest='minimal',
     action="store_true",
     default=False,
-    help='Skips flavor/image lookups when showing servers')
+    help='Skips flavor/image lookups when showing instances')
 def do_rebuild(cs, args):
     """Shutdown, re-image, and re-boot a server."""
     server = _find_server(cs, args.server)
@@ -1237,7 +1238,7 @@ def do_rename(cs, args):
     dest='poll',
     action="store_true",
     default=False,
-    help='Blocks while servers resizes so progress can be reported.')
+    help='Blocks while instance resizes so progress can be reported.')
 def do_resize(cs, args):
     """Resize a server."""
     server = _find_server(cs, args.server)
@@ -1266,7 +1267,7 @@ def do_resize_revert(cs, args):
     dest='poll',
     action="store_true",
     default=False,
-    help='Blocks while server migrates so progress can be reported.')
+    help='Blocks while instance migrates so progress can be reported.')
 def do_migrate(cs, args):
     """Migrate a server. The new host will be selected by the scheduler."""
     server = _find_server(cs, args.server)
@@ -1338,24 +1339,6 @@ def do_unrescue(cs, args):
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
-def do_shelve(cs, args):
-    """Shelve a server."""
-    _find_server(cs, args.server).shelve()
-
-
-@utils.arg('server', metavar='<server>', help='Name or ID of server.')
-def do_shelve_offload(cs, args):
-    """Remove a shelved server from the compute node."""
-    _find_server(cs, args.server).shelve_offload()
-
-
-@utils.arg('server', metavar='<server>', help='Name or ID of server.')
-def do_unshelve(cs, args):
-    """Unshelve a server."""
-    _find_server(cs, args.server).unshelve()
-
-
-@utils.arg('server', metavar='<server>', help='Name or ID of server.')
 def do_diagnostics(cs, args):
     """Retrieve server diagnostics."""
     server = _find_server(cs, args.server)
@@ -1381,7 +1364,7 @@ def do_root_password(cs, args):
     dest='poll',
     action="store_true",
     default=False,
-    help='Blocks while server snapshots so progress can be reported.')
+    help='Blocks while instance snapshots so progress can be reported.')
 def do_image_create(cs, args):
     """Create a new image by taking a snapshot of a running server."""
     server = _find_server(cs, args.server)
@@ -1414,7 +1397,7 @@ def do_image_create(cs, args):
 @utils.arg('rotation', metavar='<rotation>',
            help='Int parameter representing how many backups to keep around.')
 def do_backup(cs, args):
-    """Backup a server by creating a 'backup' type snapshot."""
+    """Backup a instance by create a 'backup' type snapshot."""
     _find_server(cs, args.server).backup(args.name,
                                          args.backup_type,
                                          args.rotation)
@@ -1441,7 +1424,7 @@ def do_meta(cs, args):
     if args.action == 'set':
         cs.servers.set_meta(server, metadata)
     elif args.action == 'delete':
-        cs.servers.delete_meta(server, sorted(metadata.keys(), reverse=True))
+        cs.servers.delete_meta(server, metadata.keys())
 
 
 def _print_server(cs, args):
@@ -1489,7 +1472,7 @@ def _print_server(cs, args):
     dest='minimal',
     action="store_true",
     default=False,
-    help='Skips flavor/image lookups when showing servers')
+    help='Skips flavor/image lookups when showing instances')
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
 def do_show(cs, args):
     """Show details about the given server."""
@@ -1527,7 +1510,7 @@ def _find_image(cs, image):
 def _find_flavor_for_admin(cs, flavor):
     """Get a flavor for administrator by name, ID, or RAM size."""
     try:
-        return utils.find_resource(cs.flavors, flavor, is_public=None)
+        return utils.find_resource(cs.flavors, flavor, is_public='None')
     except exceptions.NotFound:
         return cs.flavors.find(ram=flavor)
 
@@ -1761,7 +1744,7 @@ def do_volume_snapshot_show(cs, args):
 @utils.arg('--force',
     metavar='<True|False>',
     help='Optional flag to indicate whether to snapshot a volume even if its '
-        'attached to a server. (Default=False)',
+        'attached to an instance. (Default=False)',
     default=False)
 @utils.arg('--display-name',
     metavar='<display-name>',
@@ -1878,7 +1861,7 @@ def do_clear_password(cs, args):
 
 
 def _print_floating_ip_list(floating_ips):
-    utils.print_list(floating_ips, ['Ip', 'Server Id', 'Fixed Ip', 'Pool'])
+    utils.print_list(floating_ips, ['Ip', 'Instance Id', 'Fixed Ip', 'Pool'])
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
@@ -2052,7 +2035,7 @@ def do_dns_delete_domain(cs, args):
 @utils.arg('--availability-zone',
     metavar='<availability-zone>',
     default=None,
-    help='Limit access to this domain to servers '
+    help='Limit access to this domain to instances '
         'in the specified availability zone.')
 @utils.arg('--availability_zone',
     help=argparse.SUPPRESS)
@@ -2111,8 +2094,7 @@ def _get_secgroup(cs, secgroup):
         encoding = (locale.getpreferredencoding() or
             sys.stdin.encoding or
             'UTF-8')
-        if not six.PY3:
-            s.name = s.name.encode(encoding)
+        s.name = s.name.encode(encoding)
         if secgroup == s.name:
             if match_found != False:
                 msg = ("Multiple security group matches found for name"
@@ -2325,7 +2307,7 @@ def do_secgroup_delete_group_rule(cs, args):
 @utils.arg('--pub_key',
     help=argparse.SUPPRESS)
 def do_keypair_add(cs, args):
-    """Create a new key pair for use with servers."""
+    """Create a new key pair for use with instances."""
     name = args.name
     pub_key = args.pub_key
 
@@ -2408,7 +2390,7 @@ def do_rate_limits(cs, args):
 def do_usage_list(cs, args):
     """List usage data for all tenants."""
     dateformat = "%Y-%m-%d"
-    rows = ["Tenant ID", "Servers", "RAM MB-Hours", "CPU Hours",
+    rows = ["Tenant ID", "Instances", "RAM MB-Hours", "CPU Hours",
             "Disk GB-Hours"]
 
     now = timeutils.utcnow()
@@ -2424,7 +2406,7 @@ def do_usage_list(cs, args):
         end = now + datetime.timedelta(days=1)
 
     def simplify_usage(u):
-        simplerows = [x.lower().replace(" ", "_") for x in rows]
+        simplerows = map(lambda x: x.lower().replace(" ", "_"), rows)
 
         setattr(u, simplerows[0], u.tenant_id)
         setattr(u, simplerows[1], "%d" % len(u.server_usages))
@@ -2455,7 +2437,7 @@ def do_usage_list(cs, args):
 def do_usage(cs, args):
     """Show usage data for a single tenant."""
     dateformat = "%Y-%m-%d"
-    rows = ["Servers", "RAM MB-Hours", "CPU Hours", "Disk GB-Hours"]
+    rows = ["Instances", "RAM MB-Hours", "CPU Hours", "Disk GB-Hours"]
 
     now = timeutils.utcnow()
 
@@ -2470,7 +2452,7 @@ def do_usage(cs, args):
         end = now + datetime.timedelta(days=1)
 
     def simplify_usage(u):
-        simplerows = [x.lower().replace(" ", "_") for x in rows]
+        simplerows = map(lambda x: x.lower().replace(" ", "_"), rows)
 
         setattr(u, simplerows[0], "%d" % len(u.server_usages))
         setattr(u, simplerows[1], "%.2f" % u.total_memory_mb_usage)
@@ -2711,7 +2693,7 @@ def _print_aggregate_details(aggregate):
     action='store_true',
     help=argparse.SUPPRESS)
 def do_live_migration(cs, args):
-    """Migrate running server to a new machine."""
+    """Migrate running instance to a new machine."""
     _find_server(cs, args.server).live_migrate(args.host,
                                                args.block_migrate,
                                                args.disk_over_commit)
@@ -2720,16 +2702,16 @@ def do_live_migration(cs, args):
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
 @utils.arg('--active', action='store_const', dest='state',
            default='error', const='active',
-           help='Request the server be reset to "active" state instead '
+           help='Request the instance be reset to "active" state instead '
            'of "error" state (the default).')
 def do_reset_state(cs, args):
-    """Reset the state of a server."""
+    """Reset the state of an instance."""
     _find_server(cs, args.server).reset_state(args.state)
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
 def do_reset_network(cs, args):
-    """Reset network of a server."""
+    """Reset network of an instance."""
     _find_server(cs, args.server).reset_network()
 
 
@@ -2905,7 +2887,7 @@ def do_hypervisor_list(cs, args):
 @utils.arg('hostname', metavar='<hostname>',
            help='The hypervisor hostname (or pattern) to search for.')
 def do_hypervisor_servers(cs, args):
-    """List servers belonging to specific hypervisors."""
+    """List instances belonging to specific hypervisors."""
     hypers = cs.hypervisors.search(args.hostname, servers=True)
 
     class InstanceOnHyper(object):
@@ -3003,13 +2985,13 @@ def do_credentials(cs, _args):
     action='store_true',
     default=False,
     help='Optional flag to indicate whether to use private address '
-         'attached to a server. (Default=False)')
+         'attached to an instance. (Default=False)')
 @utils.arg('--ipv6',
     dest='ipv6',
     action='store_true',
     default=False,
     help='Optional flag to indicate whether to use an IPv6 address '
-         'attached to a server. (Defaults to IPv4 address)')
+         'attached to an instance. (Defaults to IPv4 address)')
 @utils.arg('--login', metavar='<login>', help='Login to use.', default="root")
 @utils.arg('-i', '--identity',
     dest='identity',
@@ -3051,26 +3033,19 @@ def do_ssh(cs, args):
 
 _quota_resources = ['instances', 'cores', 'ram', 'volumes', 'gigabytes',
                     'floating_ips', 'fixed_ips', 'metadata_items',
-                    'injected_files', 'injected_file_content_bytes',
-                    'injected_file_path_bytes', 'key_pairs',
+                    'injected_files', 'key_pairs',
+                    'injected_file_content_bytes', 'injected_file_path_bytes',
                     'security_groups', 'security_group_rules']
 
 
 def _quota_show(quotas):
-    class FormattedQuota(object):
-        def __init__(self, key, value):
-            setattr(self, 'quota', key)
-            setattr(self, 'limit', value)
-
-    quota_list = []
+    quota_dict = {}
     for resource in _quota_resources:
         try:
-            quota = FormattedQuota(resource, getattr(quotas, resource))
-            quota_list.append(quota)
+            quota_dict[resource] = getattr(quotas, resource)
         except AttributeError:
             pass
-    columns = ['Quota', 'Limit']
-    utils.print_list(quota_list, columns)
+    utils.print_dict(quota_dict)
 
 
 def _quota_update(manager, identifier, args):
@@ -3328,13 +3303,13 @@ def do_quota_class_update(cs, args):
     dest='password',
     metavar='<password>',
     default=None,
-    help="Set the provided password on the evacuated server. Not applicable "
+    help="Set the provided password on the evacuated instance. Not applicable "
             "with on-shared-storage flag")
 @utils.arg('--on-shared-storage',
     dest='on_shared_storage',
     action="store_true",
     default=False,
-    help='Specifies whether server files are located on shared storage')
+    help='Specifies whether instance files located on shared storage')
 def do_evacuate(cs, args):
     """Evacuate server from failed host to specified one."""
     server = _find_server(cs, args.server)
@@ -3361,7 +3336,7 @@ def _print_interfaces(interfaces):
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
 def do_interface_list(cs, args):
-    """List interfaces attached to a server."""
+    """List interfaces attached to an instance."""
     server = _find_server(cs, args.server)
 
     res = server.interface_list()
@@ -3376,7 +3351,7 @@ def do_interface_list(cs, args):
 @utils.arg('--fixed-ip', metavar='<fixed_ip>', help='Requested fixed IP.',
            default=None, dest="fixed_ip")
 def do_interface_attach(cs, args):
-    """Attach a network interface to a server."""
+    """Attach a network interface to an instance."""
     server = _find_server(cs, args.server)
 
     res = server.interface_attach(args.port_id, args.net_id, args.fixed_ip)
@@ -3387,7 +3362,7 @@ def do_interface_attach(cs, args):
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
 @utils.arg('port_id', metavar='<port_id>', help='Port ID.')
 def do_interface_detach(cs, args):
-    """Detach a network interface from a server."""
+    """Detach a network interface from an instance."""
     server = _find_server(cs, args.server)
 
     res = server.interface_detach(args.port_id)
@@ -3412,8 +3387,7 @@ def _treeizeAvailabilityZone(zone):
     result.append(az)
 
     if zone.hosts is not None:
-        zone_hosts = sorted(zone.hosts.items(), key=lambda x: x[0])
-        for (host, services) in zone_hosts:
+        for (host, services) in zone.hosts.items():
             # Host tree view item
             az = AvailabilityZone(zone.manager,
                                   copy.deepcopy(zone._info), zone._loaded)

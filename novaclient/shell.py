@@ -243,11 +243,21 @@ class OpenStackComputeShell(object):
             action='store_true',
             help="Print debugging output")
 
+        parser.add_argument('--no-cache',
+            default=not utils.bool_from_str(
+                    utils.env('OS_NO_CACHE', default='true')),
+            action='store_false',
+            dest='os_cache',
+            help=argparse.SUPPRESS)
+        parser.add_argument('--no_cache',
+            action='store_false',
+            dest='os_cache',
+            help=argparse.SUPPRESS)
+
         parser.add_argument('--os-cache',
-            default=utils.bool_from_str(utils.env('OS_CACHE', default=False)),
+            default=utils.env('OS_CACHE', default=False),
             action='store_true',
-            help="Use the auth token cache. Defaults to False if env[OS_CACHE]"
-                 " is not set.")
+            help="Use the auth token cache.")
 
         parser.add_argument('--timings',
             default=False,
@@ -513,6 +523,11 @@ class OpenStackComputeShell(object):
             spot = argv.index('--endpoint_type')
             argv[spot] = '--endpoint-type'
 
+	#Petter
+	if '--qemu_commandline' in argv:
+            spot = argv.index('--qemu_commandline')
+	    print('qemu-commandline args:',argv[spot+1])	
+
         subcommand_parser = self.get_subcommand_parser(
                 options.os_compute_api_version)
         self.parser = subcommand_parser
@@ -629,9 +644,15 @@ class OpenStackComputeShell(object):
                 self.cs.client.tenant_id = tenant_id
                 self.cs.client.auth_token = auth_token
                 self.cs.client.management_url = management_url
-                # authenticate just sets up some values in this case, no REST
-                # calls
-                self.cs.authenticate()
+                # Try to auth with the given info, if it fails
+                # go into password mode...
+                try:
+                    self.cs.authenticate()
+                    use_pw = False
+                except (exc.Unauthorized, exc.AuthorizationFailure):
+                    # Likely it expired or just didn't work...
+                    self.cs.client.auth_token = None
+                    self.cs.client.management_url = None
             if use_pw:
                 # Auth using token must have failed or not happened
                 # at all, so now switch to password mode and save
@@ -654,7 +675,9 @@ class OpenStackComputeShell(object):
         except exc.AuthorizationFailure:
             raise exc.CommandError("Unable to authorize user")
 
-        args.func(self.cs, args)
+        #petter
+	print('func:',args.func)
+	args.func(self.cs, args)
 
         if args.timings:
             self._dump_timings(self.cs.get_timings())

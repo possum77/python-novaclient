@@ -212,12 +212,7 @@ class ManagerWithFind(Manager):
             list_kwargs['detailed'] = detailed
 
         if 'is_public' in list_argspec.args and 'is_public' in kwargs:
-            is_public = kwargs['is_public']
-            list_kwargs['is_public'] = is_public
-            if is_public is None:
-                tmp_kwargs = kwargs.copy()
-                del tmp_kwargs['is_public']
-                searches = tmp_kwargs.items()
+            list_kwargs['is_public'] = kwargs['is_public']
 
         listing = self.list(**list_kwargs)
 
@@ -241,7 +236,7 @@ class BootingManagerWithFind(ManagerWithFind):
     def _parse_block_device_mapping(self, block_device_mapping):
         bdm = []
 
-        for device_name, mapping in six.iteritems(block_device_mapping):
+        for device_name, mapping in block_device_mapping.iteritems():
             #
             # The mapping is in the format:
             # <id>:[<type>]:[<size(GB)>]:[<delete_on_terminate>]
@@ -269,14 +264,16 @@ class BootingManagerWithFind(ManagerWithFind):
             bdm.append(bdm_dict)
         return bdm
 
+    #Petter inserted qemu_commandline
     def _boot(self, resource_url, response_key, name, image, flavor,
-              meta=None, files=None, userdata=None,
+              qemu_commandline=None, meta=None, files=None, userdata=None,
               reservation_id=None, return_raw=False, min_count=None,
               max_count=None, security_groups=None, key_name=None,
               availability_zone=None, block_device_mapping=None,
               block_device_mapping_v2=None, nics=None, scheduler_hints=None,
               config_drive=None, admin_pass=None, disk_config=None, **kwargs):
-        """
+        
+	"""
         Create (boot) a new server.
 
         :param name: Something to name the server.
@@ -326,7 +323,10 @@ class BootingManagerWithFind(ManagerWithFind):
             body["server"]["user_data"] = base64.b64encode(userdata)
         if meta:
             body["server"]["metadata"] = meta
-        if reservation_id:
+        #Petter
+        if qemu_commandline:
+	    body["server"]["qemu_commandline"] = qemu_commandline
+	if reservation_id:
             body["server"]["reservation_id"] = reservation_id
         if key_name:
             body["server"]["key_name"] = key_name
@@ -353,15 +353,14 @@ class BootingManagerWithFind(ManagerWithFind):
         # either an open file *or* some contents as files here.
         if files:
             personality = body['server']['personality'] = []
-            for filepath, file_or_string in sorted(files.items(),
-                                                   key=lambda x: x[0]):
+            for filepath, file_or_string in files.items():
                 if hasattr(file_or_string, 'read'):
                     data = file_or_string.read()
                 else:
                     data = file_or_string
                 personality.append({
                     'path': filepath,
-                    'contents': base64.b64encode(data.encode('utf-8')),
+                    'contents': data.encode('base64'),
                 })
 
         if availability_zone:
@@ -372,13 +371,6 @@ class BootingManagerWithFind(ManagerWithFind):
             body['server']['block_device_mapping'] = \
                     self._parse_block_device_mapping(block_device_mapping)
         elif block_device_mapping_v2:
-            # Append the image to the list only if we have new style BDMs
-            if image:
-                bdm_dict = {'uuid': image.id, 'source_type': 'image',
-                            'destination_type': 'local', 'boot_index': 0,
-                            'delete_on_termination': True}
-                block_device_mapping_v2.insert(0, bdm_dict)
-
             body['server']['block_device_mapping_v2'] = block_device_mapping_v2
 
         if nics is not None:
